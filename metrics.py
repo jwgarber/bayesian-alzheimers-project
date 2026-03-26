@@ -12,7 +12,7 @@ from sklearn.inspection import permutation_importance
 nlp = spacy.load("en_core_web_sm")
 
 
-# Feature extraction (same as yours)
+# Feature extraction
 def extract_features(text):
     doc = nlp(str(text))
     
