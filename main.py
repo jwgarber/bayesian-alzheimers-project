@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import bambi as bmb
 import arviz as az
+import kulprit as kpt
 import arviz_plots as azp
 import arviz_stats as azs
 import re
@@ -31,52 +32,95 @@ def count_mlu(transcript):
     lengths = [len(w) for w in words]
     return statistics.mean(lengths)
 
-# TODO standardize data?
+# TODO standardize data? NUTS is much faster with standardized data
+# Once data has been standardizedi bambi uses weakly informative standard normal priors
+# (This is equivalent to Ridge regression in frequentist approach)
+
+# Prior distribution plots (not needed)
+# Posterior distribution plots (perhaps HDI plot around origin would be better, plot_forest)
+
+# Prior predictive plots?
+# Posterior Predictive plots (helpful in some way)
+# Maybe counterfactual
+# Variable selection
 
 def main():
-    df = pd.read_csv("./transcripts.csv")
+    df = pd.read_csv("./processed_features.csv")
 
     # Remove ellipses, they make everything more complicated
     df["transcript"] = df["transcript"].map(lambda transcript: transcript.replace("...", ""))
 
-    df["mlu"] = df["transcript"].map(count_mlu)
-    df["ttr"] = df["transcript"].map(count_ttr)
+    # df["mlu"] = df["transcript"].map(count_mlu)
+    # df["ttr"] = df["transcript"].map(count_ttr)
 
-    plt.figure()
-    sns.violinplot(data=df, x="ad", y="mlu")
-    plt.savefig("mlu.pdf")
+    # plt.figure()
+    # sns.violinplot(data=df, x="ad", y="mlu")
+    # plt.savefig("mlu.pdf")
 
-    plt.figure()
-    sns.violinplot(data=df, x="ad", y="ttr", hue="sex")
-    plt.savefig("ttr.pdf")
+    # plt.figure()
+    # sns.violinplot(data=df, x="ad", y="ttr", hue="sex")
+    # plt.savefig("ttr.pdf")
 
     print(df.head())
 
-    azp.style.use("arviz-variat")
+    az.style.use("arviz-variat")
 
-    model = bmb.Model("ad ~ mlu + ttr + age", df)
+    predictors = [col for col in df.columns if col not in ('ad', 'sex', 'age', 'transcript', 'subject')]
+
+    formula = "ad ~ " + '+'.join(predictors)
+
+    model = bmb.Model(formula, df, family="bernoulli")
     print(model)
     model.build()
 
     model.plot_priors()
     plt.savefig("priors.pdf")
 
-    results = model.fit(draws=1000, family="bernoulli", idata_kwargs={"log_likelihood": True})
+    fitted = model.fit(draws=1000, idata_kwargs={"log_likelihood": True})
 
-    print(azs.summary(results))
+    print(azs.summary(fitted))
 
-    azp.plot_dist(results)
+    azp.plot_dist(fitted)
     plt.savefig("dist.pdf")
-    azp.plot_trace(results)
+
+    azp.plot_trace(fitted)
     plt.savefig("trace.pdf")
 
-    # try with interaction terms
-    m2 = bmb.Model("ad ~ mlu*ttr*age", df)
-    r2 = m2.fit(draws=1000, family="bernoulli", idata_kwargs={"log_likelihood": True})
-    models = {"default": results, "interaction": r2}
-    print(az.compare(models))
-    # interaction is actually worse
+    azp.plot_ridge(fitted)
+    plt.savefig("ridge.pdf")
 
+    azp.plot_forest(fitted, combined=True)
+    plt.savefig("forest.pdf")
+
+    #model.predict(fitted, kind="response")
+    loo = az.loo(fitted, pointwise=True)
+    print(loo)
+
+    threshold = 0.7
+    ax = az.plot_khat(loo.pareto_k.values.ravel())
+    ax.axhline(threshold, ls="--", color="orange")
+
+    plt.savefig("pareto.pdf")
+
+    outliers = df.reset_index()[loo.pareto_k.values >= threshold]
+    print(outliers)
+
+    # constant model that guesses randomly
+    m2 = bmb.Model("ad ~ 1", df, family="bernoulli")
+    f2 = m2.fit(draws=1000, idata_kwargs={"log_likelihood": True})
+    models = {"default": fitted, "constant": f2}
+    print(az.compare(models))
+    # prediction is trickier, since it doesn't give a point estimate for a prediction but
+    # a distribution instead. So accuracy is harder to assess.
+
+    # could do outliers w/ pareto
+    # or separation plot
+
+    # ppi = kpt.ProjectionPredictive(model, fitted)
+    # ppi.project()
+
+    # kpt.plot_compare(ppi.compare(min_model_size=1))
+    # plt.savefig("kulprit.pdf")
 
 if __name__ == "__main__":
     main()
