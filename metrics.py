@@ -7,12 +7,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
 from sklearn.inspection import permutation_importance
+import matplotlib.pyplot as plt
+from sklearn.model_selection import cross_val_score
+
 
 # Load spaCy model
 nlp = spacy.load("en_core_web_sm")
 
 
-# Feature extraction
+# Feature extraction (same as yours)
 def extract_features(text):
     doc = nlp(str(text))
     
@@ -44,9 +47,6 @@ def extract_features(text):
     avg_sentence_length = np.mean(sent_lengths) if sent_lengths else 0
     sentence_length_std = np.std(sent_lengths) if sent_lengths else 0
     
-    fillers = {"um", "uh", "er", "ah"}
-    filler_count = sum(1 for t in tokens if t.lower_ in fillers)
-    filler_ratio = filler_count / total_words
     
     repetition_count = sum(
         1 for i in range(1, len(tokens))
@@ -73,7 +73,6 @@ def extract_features(text):
         "type_token_ratio": safe_div(unique_words, total_words),
         "avg_sentence_length": avg_sentence_length,
         "sentence_length_std": sentence_length_std,
-        "filler_ratio": filler_ratio,
         "repetition_ratio": repetition_ratio,
         "avg_word_length": avg_word_length,
         "pos_diversity": pos_diversity
@@ -83,8 +82,8 @@ def extract_features(text):
 FEATURE_NAMES = [
     "noun_ratio","verb_ratio","pronoun_ratio","adjective_ratio","adverb_ratio",
     "noun_verb_ratio","pronoun_noun_ratio","function_word_ratio","content_word_ratio",
-    "type_token_ratio","avg_sentence_length","sentence_length_std",
-    "filler_ratio","repetition_ratio","avg_word_length","pos_diversity"
+    "type_token_ratio","avg_sentence_length","sentence_length_std"
+    ,"repetition_ratio","avg_word_length","pos_diversity"
 ]
 
 
@@ -105,9 +104,9 @@ def process_dataset(input_csv, output_csv):
     return df
 
 # Logistic Regression + importance
-def run_logistic_regression(df, label_column="ad"):
+def run_logistic_regression(df, features, label_column="ad"):
     
-    X = df[FEATURE_NAMES].values
+    X = df[features].values
     y = df[label_column].values
     
     X_train, X_test, y_train, y_test = train_test_split(
@@ -137,13 +136,86 @@ def run_logistic_regression(df, label_column="ad"):
     for i in result.importances_mean.argsort()[::-1]:
         print(f"{FEATURE_NAMES[i]:25s}: {result.importances_mean[i]:.3f}")
     
-    return model
+    return model, X_test, y_test
 
-# MAIN
+
+def remove_correlated_features(df, threshold=0.9):
+    
+    print("\nRemoving highly correlated features...")
+    
+    corr_matrix = df[FEATURE_NAMES].corr().abs()
+    
+    upper = corr_matrix.where(
+        np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+    )
+    
+    to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
+    
+    print("Dropped features:", to_drop)
+    
+    remaining_features = [f for f in FEATURE_NAMES if f not in to_drop]
+    
+    return remaining_features
+
+def run_cross_validation(df, features, label_column="ad"):
+    
+    print("\n=== Cross Validation (5-fold) ===")
+    
+    X = df[features].values
+    y = df[label_column].values
+    
+    model = LogisticRegression(max_iter=1000)
+    
+    scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
+    
+    print("Scores:", scores)
+    print("Mean accuracy:", scores.mean())
+    print("Std:", scores.std())
+
+def plot_coefficients(model, features):
+    
+    coefs = model.coef_[0]
+    
+    plt.figure()
+    plt.barh(features, coefs)
+    plt.title("Logistic Regression Coefficients")
+    plt.xlabel("Coefficient Value")
+    plt.tight_layout()
+    plt.show()
+
+def plot_permutation_importance(model, X_test, y_test, features):
+    
+    result = permutation_importance(
+        model, X_test, y_test, n_repeats=10, random_state=42
+    )
+    
+    sorted_idx = result.importances_mean.argsort()
+    
+    plt.figure()
+    plt.barh(np.array(features)[sorted_idx], result.importances_mean[sorted_idx])
+    plt.title("Permutation Importance")
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
     
     df = process_dataset("./transcripts.csv", "processed_features.csv")
     
+    print("\nSample output:")
     print(df.head())
     
-    model = run_logistic_regression(df)
+    # Step 1: remove correlated features
+    selected_features = remove_correlated_features(df)
+    
+    print("\nSelected features:", selected_features)
+    
+    # Step 2: cross-validation
+    run_cross_validation(df, selected_features)
+    
+    # Step 3: train final model
+    model, X_test, y_test = run_logistic_regression(df, selected_features)
+    
+    # Step 4: plots
+    plot_coefficients(model, selected_features)
+    plot_permutation_importance(model, X_test, y_test, selected_features)
