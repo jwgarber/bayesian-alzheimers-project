@@ -1,0 +1,13 @@
+[project]
+name = "bayesian-alzheimers-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bambi>=0.17.2",
+    "kulprit>=0.5.1",
+    "scikit-learn>=1.8.0",
+    "seaborn>=0.13.2",
+    "spacy>=3.8.13",
+]
