@@ -55,7 +55,8 @@ def extract_features(text):
     repetition_ratio = repetition_count / total_words
     
     avg_word_length = np.mean([len(t.text) for t in tokens])
-    pos_diversity = len(set(t.pos_ for t in tokens)) / total_words
+    pos_diversity = len(set(t.pos_ for t in tokens))
+    transcript_length = total_words
     
     def safe_div(a, b):
         return a / b if b != 0 else 0
@@ -75,7 +76,8 @@ def extract_features(text):
         "sentence_length_std": sentence_length_std,
         "repetition_ratio": repetition_ratio,
         "avg_word_length": avg_word_length,
-        "pos_diversity": pos_diversity
+        "pos_diversity": pos_diversity,
+        "transcript_length": transcript_length
     }
 
 # Feature names
@@ -83,7 +85,7 @@ FEATURE_NAMES = [
     "noun_ratio","verb_ratio","pronoun_ratio","adjective_ratio","adverb_ratio",
     "noun_verb_ratio","pronoun_noun_ratio","function_word_ratio","content_word_ratio",
     "type_token_ratio","avg_sentence_length","sentence_length_std"
-    ,"repetition_ratio","avg_word_length","pos_diversity"
+    ,"repetition_ratio","avg_word_length","pos_diversity","transcript_length"
 ]
 
 
