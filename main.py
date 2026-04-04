@@ -9,6 +9,8 @@ import re
 import seaborn as sns
 import statistics
 
+import metrics
+
 def count_ttr(transcript):
     sentences = re.split(r'[.!?]', transcript)
     sentences = [s.strip() for s in sentences]
@@ -37,18 +39,25 @@ def count_mlu(transcript):
 # (This is equivalent to Ridge regression in frequentist approach)
 
 # Prior distribution plots (not needed)
-# Posterior distribution plots (perhaps HDI plot around origin would be better, plot_forest)
+# Posterior distribution plots for variables (perhaps HDI plot around origin would be better, plot_forest)
 
 # Prior predictive plots?
 # Posterior Predictive plots (helpful in some way)
 # Maybe counterfactual
+
 # Variable selection
 
+text = """
+There's a boy on a stool, he's getting cookies from a cookie jar and the girl's looking at him saying oh don't make a noise we're stealing cookies, but the boy's about to fall over on the stool and the mom is over there washing dishes and oh the water is spilling out onto the floor and she's looking outside at the window. There's a lawn out there with another house outside.
+"""
+
 def main():
-    df = pd.read_csv("./processed_features.csv")
+    df, scaler = metrics.process_dataset2("./transcripts.csv")
+
+    # df = pd.read_csv("./processed_features.csv")
 
     # Remove ellipses, they make everything more complicated
-    df["transcript"] = df["transcript"].map(lambda transcript: transcript.replace("...", ""))
+    # df["transcript"] = df["transcript"].map(lambda transcript: transcript.replace("...", ""))
 
     # df["mlu"] = df["transcript"].map(count_mlu)
     # df["ttr"] = df["transcript"].map(count_ttr)
@@ -86,7 +95,9 @@ def main():
     azp.plot_trace(fitted)
     plt.savefig("trace.pdf")
 
+    # TODO shrink number of variables
     azp.plot_ridge(fitted)
+    plt.title("Posterior Distributions of Parameters")
     plt.savefig("ridge.pdf")
 
     azp.plot_forest(fitted, combined=True)
@@ -103,13 +114,58 @@ def main():
     plt.savefig("pareto.pdf")
 
     outliers = df.reset_index()[loo.pareto_k.values >= threshold]
+    print("OUTLIERS")
     print(outliers)
+
+    me_features = metrics.extract_features(text)
+    me_df = pd.DataFrame([me_features])
+    me_df[metrics.FEATURE_NAMES] = scaler.transform(me_df[metrics.FEATURE_NAMES])
+    # print(me_df)
+
+    # me_post = bmb.interpret.predictions(model, fitted, conditional=me_df.to_dict(orient='list'))
+    # print(type(me_post.draws))
+    # print(me_post.draws)
+    # raise
+
+    sep_fitted = model.predict(fitted, kind="response", inplace=False)
+    az.plot_separation(sep_fitted, y="ad", figsize=(9,0.5))
+    plt.savefig("separation.pdf")
+
+    ppc = model.predict(fitted, kind="response_params", inplace=False)
+    azp.plot_dist(ppc, var_names='p', point_estimate='mean', visuals={'credible_interval': False, 'point_estimate_text': False})
+    plt.savefig("ppc.pdf")
+
+    me_post = model.predict(fitted, data=me_df, kind="response_params", inplace=False)
+    # print(type(me_post))
+    # print(me_post)
+    # print(me_post["posterior"])
+    # print(me_post["posterior"].coords)
+    # plt.figure(figsize=(6, 4))
+    azp.plot_dist(me_post, var_names='p', visuals={'credible_interval': False, 'point_estimate_text': False},
+    figure_kwargs={"figsize": (6, 4)}
+    )
+    plt.title("Probability of Alzheimer's")
+    plt.ylabel("Density")
+    plt.xlabel("Probability")
+    plt.savefig("posterior-me.pdf")
+
+    post118 = model.predict(fitted, data=df.iloc[[118]], kind="response_params", inplace=False)
+    azp.plot_dist(post118, var_names='p', visuals={'credible_interval': False, 'point_estimate_text': False},
+    figure_kwargs={"figsize": (6, 4)}
+    )
+    plt.title("Probability of Alzheimer's")
+    plt.ylabel("Density")
+    plt.xlabel("Probability")
+    plt.savefig("posterior-118.pdf")
 
     # constant model that guesses randomly
     m2 = bmb.Model("ad ~ 1", df, family="bernoulli")
     f2 = m2.fit(draws=1000, idata_kwargs={"log_likelihood": True})
     models = {"default": fitted, "constant": f2}
-    print(az.compare(models))
+    comp = az.compare(models)
+    print(comp)
+    az.plot_compare(comp)
+    plt.savefig("compare.pdf")
     # prediction is trickier, since it doesn't give a point estimate for a prediction but
     # a distribution instead. So accuracy is harder to assess.
 
